@@ -36,10 +36,16 @@ def main() -> int:
         regions = [item.strip().upper() for item in regions.split(",") if item.strip()]
     else:
         regions = [str(item).strip().upper() for item in regions]
+    exclusions = raw.get("exclude_regions") or []
+    if isinstance(exclusions, str):
+        exclusions = [item.strip().upper() for item in exclusions.split(",") if item.strip()]
+    else:
+        exclusions = [str(item).strip().upper() for item in exclusions]
     if "ALL" in regions or not regions:
         selected_regions = set(app.REGION_BY_CODE)
     else:
         selected_regions = {code for code in regions if code in app.REGION_BY_CODE}
+    selected_regions -= {code for code in exclusions if code in app.REGION_BY_CODE}
 
     output_dir = Path(args.output_dir or raw.get("output_dir") or "output")
     if not output_dir.is_absolute():
