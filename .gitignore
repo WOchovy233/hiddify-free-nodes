@@ -1,0 +1,17 @@
+﻿__pycache__/
+*.pyc
+build/
+dist/
+*.exe
+app_旧版_控制台.exe
+app.ico
+app_icon.png
+ui_*.png
+exe_preview.png
+.test*
+.patch*
+.hiddify-*
+.hiddify-core.zip
+.hiddify-singbox.zip
+.hiddify-app.zip
+output/

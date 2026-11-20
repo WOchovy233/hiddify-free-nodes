@@ -1,0 +1,64 @@
+﻿name: Update free nodes
+
+on:
+  schedule:
+    # 每 12 小时自动运行一次（UTC 00:00 / 12:00）
+    - cron: "0 */12 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - "app.py"
+      - "runner.py"
+      - "config.json"
+      - "requirements.txt"
+      - ".github/workflows/update-nodes.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-free-nodes
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Fetch, test and export nodes
+        run: python runner.py --config config.json
+
+      - name: Publish to output branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+          rm -rf /tmp/node-output && mkdir -p /tmp/node-output
+          cp output/clean_nodes.txt /tmp/node-output/
+          cp output/clean_nodes_plain.txt /tmp/node-output/
+          cp output/clean_nodes.yaml /tmp/node-output/
+          cp output/clean_nodes_singbox.json /tmp/node-output/
+          cd /tmp/node-output
+          git init -b output
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "update $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" output
+

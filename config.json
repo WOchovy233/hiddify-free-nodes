@@ -1,0 +1,11 @@
+﻿{
+  "latency_limit_ms": 800,
+  "quality_mode": "strict",
+  "jitter_limit_ms": 180,
+  "max_workers": 120,
+  "max_nodes": 600,
+  "regions": ["ALL"],
+  "keep_unknown_region": false,
+  "output_dir": "output"
+}
+
