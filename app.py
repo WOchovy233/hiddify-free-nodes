@@ -52,7 +52,7 @@ SOURCE_URLS = [
     "https://raw.githubusercontent.com/zhangkaiitugithub/passcro/main/speednodes.yaml",
     "https://raw.githubusercontent.com/chengaopan/AutoMergePublicNodes/master/list.yml",
     "https://cdn.jsdelivr.net/gh/free18/v2ray@main/c.yaml",
-    "https://raw.githubusercontent.com/mfuu/v2ray/master/clash.yaml",
+    "https://raw.githubusercontent.com/mahdibland/ShadowsocksAggregator/master/Eternity.yml",
     "https://raw.githubusercontent.com/peasoft/NoMoreWalls/master/list.yml",
     "https://raw.githubusercontent.com/ripaojiedian/freenode/main/clash",
     "https://raw.githubusercontent.com/awesome-vpn/awesome-vpn/master/clash.yaml",
@@ -1805,6 +1805,43 @@ def run_quality_probe(
     return [r for r in records if r.verified]
 
 
+def source_mirrors(url: str) -> list[str]:
+    """Return equivalent download mirrors for a GitHub-hosted source."""
+    mirrors = [url]
+    parsed = urllib.parse.urlparse(url)
+    raw_url = ""
+
+    if parsed.netloc == "ghproxy.net":
+        target = parsed.path.lstrip("/")
+        if target.startswith(("http://", "https://")):
+            raw_url = target
+    elif parsed.netloc == "raw.githubusercontent.com":
+        raw_url = url
+    elif parsed.netloc == "cdn.jsdelivr.net" and parsed.path.startswith("/gh/"):
+        rest = parsed.path[4:]
+        if "@" in rest and "/" in rest:
+            repo_part, branch_file = rest.split("@", 1)
+            if "/" in branch_file:
+                branch, file_part = branch_file.split("/", 1)
+                raw_url = f"https://raw.githubusercontent.com/{repo_part}/{branch}/{file_part}"
+
+    if raw_url and raw_url != url:
+        mirrors.append(raw_url)
+
+    if raw_url:
+        raw_parts = urllib.parse.urlparse(raw_url).path.lstrip("/").split("/", 3)
+        if len(raw_parts) == 4:
+            owner, repo, branch, file_part = raw_parts
+            mirrors.append(f"https://cdn.jsdelivr.net/gh/{owner}/{repo}@{branch}/{file_part}")
+        mirrors.append(f"https://ghproxy.net/{raw_url}")
+
+    unique: list[str] = []
+    for item in mirrors:
+        if item and item not in unique:
+            unique.append(item)
+    return unique
+
+
 def fetch_sources(emit: Callable[[dict], None], cancel_event: threading.Event) -> list[dict]:
     total = len(SOURCE_URLS)
     all_nodes: list[dict] = []
@@ -1816,37 +1853,41 @@ def fetch_sources(emit: Callable[[dict], None], cancel_event: threading.Event) -
     for index, url in enumerate(SOURCE_URLS, start=1):
         if cancel_event.is_set():
             break
+        candidates = source_mirrors(url)
+        if len(candidates) == 1:
+            candidates.append(url)
         emit({"type": "log", "text": f"抓取源 {index}/{total}：{urllib.parse.urlparse(url).netloc}"})
-        response = None
+        parsed_count: Optional[int] = None
         last_error = ""
-        for attempt in range(2):
-            try:
-                response = session.get(url, timeout=(6, 14))
+        for attempt, candidate in enumerate(candidates[:3], start=1):
+            if cancel_event.is_set():
                 break
+            try:
+                response = session.get(candidate, timeout=(5, 10))
+                if response.status_code != 200:
+                    last_error = f"HTTP {response.status_code}"
+                    continue
+                text = response.content.decode(response.encoding or "utf-8", errors="replace")
+                # 部分免费源混入 C0/C1 控制字符，先清理再解析，避免整份 YAML 被丢弃。
+                text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", text)
+                yaml = YAML(typ="safe", pure=True)
+                data = yaml.load(text)
+                proxies = data.get("proxies") if isinstance(data, dict) else None
+                if isinstance(proxies, list):
+                    valid = [item for item in proxies if isinstance(item, dict)]
+                    all_nodes.extend(valid)
+                    parsed_count = len(valid)
+                    break
+                last_error = "未发现 proxies 列表"
             except Exception as exc:
                 last_error = clean_text(exc, 100)
-                if attempt == 0:
-                    time.sleep(0.35)
-        try:
-            if response is None:
-                raise RuntimeError(last_error or "请求失败")
-            if response.status_code != 200:
-                emit({"type": "log", "text": f"  ↳ HTTP {response.status_code}，跳过"})
-                continue
-            text = response.content.decode(response.encoding or "utf-8", errors="replace")
-            # 部分免费源混入 C0/C1 控制字符，先清理再解析，避免整份 YAML 被丢弃。
-            text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", text)
-            yaml = YAML(typ="safe", pure=True)
-            data = yaml.load(text)
-            proxies = data.get("proxies") if isinstance(data, dict) else None
-            if isinstance(proxies, list):
-                valid = [item for item in proxies if isinstance(item, dict)]
-                all_nodes.extend(valid)
-                emit({"type": "log", "text": f"  ↳ 获取 {len(valid)} 个节点"})
-            else:
-                emit({"type": "log", "text": "  ↳ 未发现 proxies 列表"})
-        except Exception as exc:
-            emit({"type": "log", "text": f"  ↳ 抓取失败：{clean_text(exc, 100)}"})
+            if attempt < len(candidates[:3]):
+                next_host = urllib.parse.urlparse(candidates[attempt]).netloc
+                emit({"type": "log", "text": f"  ↳ 主地址失败，换用镜像：{next_host}"})
+        if parsed_count is None:
+            emit({"type": "log", "text": f"  ↳ 抓取失败：{last_error or '请求失败'}"})
+        else:
+            emit({"type": "log", "text": f"  ↳ 获取 {parsed_count} 个节点"})
         emit({
             "type": "progress",
             "value": 18.0 * index / total,
@@ -1895,7 +1936,7 @@ def build_records(raw_nodes: list[dict], config: RunConfig, emit: Callable[[dict
         "type": "log",
         "text": (
             f"预筛完成：原始 {total} → 合规 {len(records)}；"
-            f"无效/不支持 {invalid}，地区不符 {wrong_region}，重复 {duplicate}"
+            f"无效 {invalid}，不支持 {unsupported}，地区不符 {wrong_region}，重复 {duplicate}"
         ),
     })
     if type_counts:
