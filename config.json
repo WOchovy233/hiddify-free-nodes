@@ -4,6 +4,16 @@
   "jitter_limit_ms": 180,
   "max_workers": 120,
   "max_nodes": 600,
+  "priority_regions": [
+    "SG",
+    "CA",
+    "IT",
+    "DE",
+    "JP",
+    "KR"
+  ],
+  "sg_min": 10,
+  "drop_insecure": true,
   "regions": [
     "JP",
     "SG",

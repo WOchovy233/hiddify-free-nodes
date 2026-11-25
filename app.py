@@ -67,6 +67,13 @@ SUPPORTED_TYPES = {
 TCP_PROTOCOLS = {"vmess", "vless", "trojan", "ss", "ssh", "anytls", "socks5", "http"}
 UDP_PROTOCOLS = {"hysteria2", "hysteria", "tuic", "wireguard"}
 TLS_DEFAULT_TYPES = {"trojan", "hysteria2", "tuic", "anytls"}
+
+# 明文/无加密协议：可以连通，但链路没有加密保护（裸奔），单独归类并排到订阅末尾。
+INSECURE_TYPES = {"http", "socks5", "socks4", "socks"}
+INSECURE_SS_CIPHERS = {"", "none"}
+# 导出排序时置顶的地区（严格按此先后顺序成组排列），其余地区再按分数顺序跟上。
+PRIORITY_REGIONS = ("SG", "CA", "IT", "DE", "JP", "KR")
+DEFAULT_SG_MIN = 10
 SUPPORTED_NETWORKS = {"tcp", "ws", "grpc", "http", "h2", "httpupgrade", "xhttp", "quic", "kcp"}
 SUPPORTED_SS_CIPHERS = {
     "aes-128-gcm", "aes-192-gcm", "aes-256-gcm",
@@ -820,6 +827,92 @@ class RunConfig:
     selected_regions: set[str] = field(default_factory=set)
     keep_unknown_region: bool = False
     output_dir: Path = field(default_factory=app_dir)
+    # 排序与安全策略
+    priority_regions: tuple[str, ...] = PRIORITY_REGIONS
+    sg_min: int = DEFAULT_SG_MIN
+    drop_insecure: bool = True
+
+
+def is_insecure_node(node: dict) -> bool:
+    """HTTP / SOCKS 明文协议，或 ss 的 none 加密：能连上但没有加密保护。"""
+    node_type = str(node.get("type") or "").lower()
+    if node_type in INSECURE_TYPES:
+        return True
+    if node_type == "ss" and str(node.get("cipher") or "").lower() in INSECURE_SS_CIPHERS:
+        return True
+    return False
+
+
+def _record_sort_key(record: NodeRecord) -> tuple:
+    return (record.score, record.quick_latency, record.region or "")
+
+
+def ensure_region_floor(
+    kept: list[NodeRecord],
+    pool: list[NodeRecord],
+    code: str,
+    minimum: int,
+    log: Optional[Callable[[str], None]] = None,
+) -> list[NodeRecord]:
+    """保证某个地区至少保留 minimum 个节点。
+
+    不足时从快速测速通过、但未通过严格复测的同地区候选里按延迟顺序补。
+    """
+    if minimum <= 0:
+        return []
+    current = sum(1 for record in kept if record.region == code)
+    if current >= minimum:
+        return []
+    kept_ids = {id(record) for record in kept}
+    spare = [r for r in pool if r.region == code and id(r) not in kept_ids]
+    spare.sort(key=lambda r: (r.quick_latency, r.failures, r.score))
+    picked = spare[: max(0, minimum - current)]
+    for record in picked:
+        if record.score >= 999999.0:
+            record.score = float(record.quick_latency) + 250.0
+        record.verified = True
+    if log and picked:
+        log("%s 地区不足 %d 个，已从高延迟候选中补入 %d 个。" % (code, minimum, len(picked)))
+    if log and current + len(picked) < minimum:
+        log("%s 地区只有 %d 个，未达到保底 %d 个。" % (code, current + len(picked), minimum))
+    return picked
+
+
+def arrange_records(
+    records: list[NodeRecord],
+    config: RunConfig,
+    log: Optional[Callable[[str], None]] = None,
+) -> list[NodeRecord]:
+    """只调整导出顺序与数量，不改动节点本身的筛选结果。"""
+    priority = [str(code).strip().upper() for code in (config.priority_regions or ())]
+    priority = [code for code in priority if code]
+    head: list[NodeRecord] = []
+    for code in priority:
+        group = [r for r in records if r.region == code]
+        group.sort(key=_record_sort_key)
+        head.extend(group)
+    head_ids = {id(record) for record in head}
+    rest = [r for r in records if id(r) not in head_ids]
+    rest.sort(key=_record_sort_key)
+    ordered = head + rest
+
+    if config.max_nodes and config.max_nodes > 0 and len(ordered) > config.max_nodes:
+        dropped = len(ordered) - config.max_nodes
+        ordered = ordered[: config.max_nodes]
+        if log:
+            log("超出上限 %d 个，已丢弃排序靠后的 %d 个节点。" % (config.max_nodes, dropped))
+
+    if log:
+        counts: dict[str, int] = {}
+        for record in ordered:
+            key = record.region or "未知"
+            counts[key] = counts.get(key, 0) + 1
+        head_count = sum(counts.get(code, 0) for code in priority)
+        detail = " / ".join("%s %d" % (code, counts.get(code, 0)) for code in priority)
+        log("排序完成：优先地区 %d 个（%s），其余 %d 个按分数排序。"
+            % (head_count, detail, len(ordered) - head_count))
+    return ordered
+
 
 def uri_host(server: str) -> str:
     if ":" in server and not server.startswith("["):
@@ -1899,7 +1992,7 @@ def fetch_sources(emit: Callable[[dict], None], cancel_event: threading.Event) -
 def build_records(raw_nodes: list[dict], config: RunConfig, emit: Callable[[dict], None]) -> list[NodeRecord]:
     records: list[NodeRecord] = []
     seen: set[tuple] = set()
-    invalid = unsupported = wrong_region = duplicate = 0
+    invalid = unsupported = wrong_region = duplicate = insecure = 0
     type_counts: dict[str, int] = {}
     total = len(raw_nodes)
     for index, raw in enumerate(raw_nodes, start=1):
@@ -1910,6 +2003,9 @@ def build_records(raw_nodes: list[dict], config: RunConfig, emit: Callable[[dict
         node_type = str(node.get("type"))
         if node_type not in SUPPORTED_TYPES:
             unsupported += 1
+            continue
+        if config.drop_insecure and is_insecure_node(node):
+            insecure += 1
             continue
         region = detect_region(str(node.get("name", "")))
         if region is None:
@@ -1936,7 +2032,8 @@ def build_records(raw_nodes: list[dict], config: RunConfig, emit: Callable[[dict
         "type": "log",
         "text": (
             f"预筛完成：原始 {total} → 合规 {len(records)}；"
-            f"无效 {invalid}，不支持 {unsupported}，地区不符 {wrong_region}，重复 {duplicate}"
+            f"无效 {invalid}，不支持 {unsupported}，地区不符 {wrong_region}，"
+            f"重复 {duplicate}，明文协议剔除 {insecure}"
         ),
     })
     if type_counts:
@@ -1995,9 +2092,15 @@ def run_pipeline(config: RunConfig, emit: Callable[[dict], None], cancel_event: 
         if not verified:
             raise RuntimeError("节点未通过稳定性复测，请尝试均衡模式或放宽延迟/抖动限制。")
 
-        verified.sort(key=lambda item: (item.score, item.quick_latency))
-        if config.max_nodes > 0:
-            verified = verified[: config.max_nodes]
+        def log_line(text: str) -> None:
+            emit({"type": "log", "text": text})
+
+        # 新加坡保底：不足时从快速测速通过、但没通过严格复测的同地区节点里补
+        supplemented = ensure_region_floor(verified, quick, "SG", config.sg_min, log_line)
+        if supplemented:
+            verified.extend(supplemented)
+
+        verified = arrange_records(verified, config, log_line)
 
         emit({"type": "progress", "value": 95.0, "status": "正在生成 Hiddify 订阅文件"})
         result = save_outputs(verified, config, lambda text: emit({"type": "log", "text": text}))
@@ -2303,7 +2406,7 @@ class NodeHunterApp:
         tk.Label(
             info,
             text=("质检流水线：协议字段规范化 -> 地区识别/筛选 -> 快速 TCP 存活 -> "
-                  "多轮 TCP 复测 + TLS 握手校验 + 抖动过滤 -> 按延迟与稳定性排序"),
+                  "多轮 TCP 复测 + TLS 握手校验 + 抖动过滤 -> 优先地区置顶 / 明文协议垫底"),
             bg=COLORS["card2"], fg=COLORS["muted"], font=(self.font_family, 9),
             anchor="w", justify="left", padx=14, pady=10,
         ).pack(fill="x")

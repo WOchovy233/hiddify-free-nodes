@@ -51,6 +51,14 @@ def main() -> int:
     if not output_dir.is_absolute():
         output_dir = base / output_dir
 
+    priority_raw = raw.get("priority_regions")
+    if isinstance(priority_raw, str):
+        priority_regions = tuple(item.strip().upper() for item in priority_raw.split(",") if item.strip())
+    elif priority_raw:
+        priority_regions = tuple(str(item).strip().upper() for item in priority_raw if str(item).strip())
+    else:
+        priority_regions = app.PRIORITY_REGIONS
+
     cfg = app.RunConfig(
         latency_limit_ms=max(100, int(raw.get("latency_limit_ms", 800))),
         quality_mode=str(raw.get("quality_mode", "balanced")),
@@ -60,6 +68,9 @@ def main() -> int:
         selected_regions=selected_regions,
         keep_unknown_region=bool(raw.get("keep_unknown_region", False)),
         output_dir=output_dir,
+        priority_regions=priority_regions,
+        sg_min=max(0, int(raw.get("sg_min", app.DEFAULT_SG_MIN))),
+        drop_insecure=bool(raw.get("drop_insecure", True)),
     )
     if cfg.quality_mode not in app.QUALITY_PRESETS:
         cfg.quality_mode = "balanced"
@@ -93,8 +104,10 @@ def main() -> int:
 
     started = time.time()
     print(f"节点捕食者 Pro 无界面运行 · {time.strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
+    insecure_note = "已剔除(HTTP/SOCKS)" if cfg.drop_insecure else "保留"
     print(f"配置：延迟<={cfg.latency_limit_ms}ms，{app.QUALITY_PRESETS[cfg.quality_mode]['label']}，"
-          f"最多{cfg.max_nodes}个，地区{len(selected_regions)}个", flush=True)
+          f"最多{cfg.max_nodes}个，地区{len(selected_regions)}个，"
+          f"优先地区{'/'.join(cfg.priority_regions) or '无'}，明文协议{insecure_note}", flush=True)
     app.run_pipeline(cfg, emit, cancel)
     print(f"耗时 {time.time() - started:.1f}s", flush=True)
     return exit_code["value"]
