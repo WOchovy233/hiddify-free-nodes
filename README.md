@@ -1,5 +1,39 @@
-﻿# Windows 客户端
+# 节点捕食者 Pro
 
-[点击下载节点捕食者 Pro EXE](https://github.com/WOchovy233/hiddify-free-nodes/releases/latest)
+Windows 桌面小工具：自动抓取公开免费节点，本地测速筛选后，导出可直接导入的订阅文件。
 
-仅提供 Windows 客户端下载。
+## 功能
+
+1. **抓取** — 内置多个公开免费订阅源，一键拉取全部节点，单源失败自动切换镜像
+2. **清洗** — 协议字段规范化、按国家/地区识别筛选、去重、剔除明文协议
+3. **测速** — 本地 TCP 延迟测试 → 多轮稳定性复测 → TLS 握手校验 → 抖动过滤
+4. **排序** — 新加坡 / 加拿大 / 意大利 / 德国 / 日本 / 韩国 优先置顶，其余按延迟与稳定性排列
+5. **导出** — 一次生成 4 个文件：Base64 订阅 TXT、纯链接 TXT、Clash Meta YAML、sing-box JSON
+
+## 导出的文件
+
+| 文件 | 用途 |
+|---|---|
+| clean_nodes_singbox.json | Hiddify、sing-box |
+| clean_nodes.yaml | Clash / Clash Meta / Mihomo |
+| clean_nodes.txt | Base64 订阅链接 |
+| clean_nodes_plain.txt | 纯链接，方便复制单条 |
+
+## 运行环境
+
+- Windows 10 / 11 64 位
+- 双击 `app.exe` 即可运行，不需要安装 Python
+- 下载地址：Releases 页面的 `app.exe`
+
+## 使用方法
+
+1. 打开软件，选择延迟档位和质检模式
+2. 在「地区」页勾选需要的国家/地区
+3. 点「开始抓取」，等待进度跑完
+4. 到输出目录取文件，导入 Hiddify 或其他客户端
+
+## 说明
+
+- 节点全部来自公开订阅源，工具只负责抓取、测速和格式转换
+- 节点可用性取决于上游源，测速结果只代表当次运行时的状态
+- 上游源失效或过期属正常情况，重新抓取即可
