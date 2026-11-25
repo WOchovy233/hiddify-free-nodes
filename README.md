@@ -1,38 +1,50 @@
-# 节点捕食者 Pro
+﻿# 节点订阅文件
 
-Windows 桌面小工具：自动抓取公开免费节点，本地测速筛选后，导出可直接导入的订阅文件。
+本仓库自动生成并维护节点订阅文件，供 Hiddify / Clash Meta / sing-box 等客户端导入。
 
-## 功能
+## 订阅地址
 
-1. **抓取** — 内置多个公开免费订阅源，一键拉取全部节点，单源失败自动切换镜像
-2. **清洗** — 协议字段规范化、按国家/地区识别筛选、去重、剔除明文协议
-3. **测速** — 本地 TCP 延迟测试 → 多轮稳定性复测 → TLS 握手校验 → 抖动过滤
-4. **导出** — 一次生成 4 个文件：Base64 订阅 TXT、纯链接 TXT、Clash Meta YAML、sing-box JSON
+```text
+https://cdn.jsdelivr.net/gh/WOchovy233/hiddify-free-nodes@output/clean_nodes_singbox.json
+```
 
-## 导出的文件
+备用地址：
 
-| 文件 | 用途 |
+```text
+https://raw.githubusercontent.com/WOchovy233/hiddify-free-nodes/output/clean_nodes_singbox.json
+```
+
+## 输出文件
+
+| 文件 | 适用客户端 |
 |---|---|
 | clean_nodes_singbox.json | Hiddify、sing-box |
 | clean_nodes.yaml | Clash / Clash Meta / Mihomo |
 | clean_nodes.txt | Base64 订阅链接 |
-| clean_nodes_plain.txt | 纯链接，方便复制单条 |
+| clean_nodes_plain.txt | 纯链接，方便单条复制 |
 
-## 运行环境
+## 更新方式
 
-- Windows 10 / 11 64 位
-- 双击 `app.exe` 即可运行，不需要安装 Python
-- 下载地址：Releases 页面的 `app.exe`
+- GitHub Actions 每 12 小时自动运行一次，重新抓取、测速，并覆盖 `output` 分支
+- 订阅地址固定不变，客户端点「更新订阅」即可
 
-## 使用方法
+## 数据来源
 
-1. 打开软件，选择延迟档位和质检模式
-2. 在「地区」页勾选需要的国家/地区
-3. 点「开始抓取」，等待进度跑完
-4. 到输出目录取文件，导入 Hiddify 或其他客户端
+节点来自下列公开订阅源，本仓库只做抓取、测速与格式转换：
+
+- ermaozi/get_subscribe
+- anaer/Sub
+- zhangkaiitugithub/passcro
+- chengaopan/AutoMergePublicNodes
+- free18/v2ray
+- mahdibland/ShadowsocksAggregator
+- peasoft/NoMoreWalls
+- ripaojiedian/freenode
+- awesome-vpn/awesome-vpn
+- sunmiao4458/free-proxy-airport
 
 ## 说明
 
-- 节点全部来自公开订阅源，工具只负责抓取、测速和格式转换
-- 节点可用性取决于上游源，测速结果只代表当次运行时的状态
-- 上游源失效或过期属正常情况，重新抓取即可
+- 本仓库只提供订阅文件，不提供任何客户端程序下载
+- 节点可用性取决于上游源，测速结果仅代表当次运行时的状态
+- 抓取结果会按延迟与稳定性排序，并剔除重复与明文协议节点
