@@ -834,11 +834,21 @@ class RunConfig:
 
 
 def is_insecure_node(node: dict) -> bool:
-    """HTTP / SOCKS 明文协议，或 ss 的 none 加密：能连上但没有加密保护。"""
+    """判断节点是否缺少传输加密（Hiddify 会显示 Not Secure）。
+
+    命中条件：HTTP / SOCKS 明文代理、ss 的 none 加密、未启用 TLS/REALITY 的 vmess/vless。
+    trojan / anytls / hysteria2 / tuic / wireguard / ssh 自身即加密，不在此列。
+    """
     node_type = str(node.get("type") or "").lower()
     if node_type in INSECURE_TYPES:
         return True
-    if node_type == "ss" and str(node.get("cipher") or "").lower() in INSECURE_SS_CIPHERS:
+    if node_type == "ss":
+        return str(node.get("cipher") or "").lower() in INSECURE_SS_CIPHERS
+    if node_type in ("vmess", "vless"):
+        if as_bool(node.get("tls"), False):
+            return False
+        if node.get("reality-opts"):
+            return False
         return True
     return False
 
